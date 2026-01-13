@@ -21,6 +21,13 @@ const bidSchema = new mongoose.Schema(
 
     message: {
       type: String
+    },
+
+    // 🔹 NEW (for hiring logic)
+    status: {
+      type: String,
+      enum: ["pending", "hired", "rejected"],
+      default: "pending"
     }
   },
   { timestamps: true }

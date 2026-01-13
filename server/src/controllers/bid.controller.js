@@ -1,44 +1,36 @@
+import mongoose from "mongoose";
 import Bid from "../models/Bid.js";
 import Gig from "../models/Gig.js";
 
 /**
  * 🔹 SUBMIT BID
  * POST /api/bids/:gigId
- * Rules:
- * - Cannot bid on own gig
- * - One bid per user per gig
  */
 export const submitBid = async (req, res) => {
   try {
     const { amount, message } = req.body;
     const gigId = req.params.gigId;
-    const userId = req.user.id; // from auth middleware
+    const userId = req.user.id;
 
-    // 1️⃣ Check if the gig exists
     const gig = await Gig.findById(gigId);
     if (!gig) {
       return res.status(404).json({ message: "Gig not found" });
     }
 
-    // 2️⃣ Prevent bidding on own gig
+    // Cannot bid on own gig
     if (gig.createdBy.toString() === userId) {
       return res.status(403).json({
         message: "You cannot bid on your own gig"
       });
     }
 
-    // 3️⃣ Optional: One bid per gig per user
-    const existingBid = await Bid.findOne({
-      gig: gigId,
-      bidder: userId
-    });
-    if (existingBid) {
+    // Only open gigs
+    if (gig.status !== "open") {
       return res.status(400).json({
-        message: "You have already placed a bid on this gig"
+        message: "Bidding is closed for this gig"
       });
     }
 
-    // 4️⃣ Create the bid
     const bid = await Bid.create({
       gig: gigId,
       bidder: userId,
@@ -46,12 +38,12 @@ export const submitBid = async (req, res) => {
       message
     });
 
-    return res.status(201).json({
+    res.status(201).json({
       message: "Bid submitted successfully",
       bid
     });
   } catch (error) {
-    return res.status(500).json({
+    res.status(500).json({
       message: "Failed to submit bid",
       error: error.message
     });
@@ -61,35 +53,91 @@ export const submitBid = async (req, res) => {
 /**
  * 🔹 GET BIDS FOR A GIG
  * GET /api/bids/:gigId
- * Rules:
- * - Only gig owner can view bids
  */
 export const getBidsForGig = async (req, res) => {
   try {
     const gigId = req.params.gigId;
-    const userId = req.user.id; // from auth middleware
+    const userId = req.user.id;
 
-    // 1️⃣ Check if the gig exists
     const gig = await Gig.findById(gigId);
     if (!gig) {
       return res.status(404).json({ message: "Gig not found" });
     }
 
-    // 2️⃣ Only gig owner can view bids
     if (gig.createdBy.toString() !== userId) {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    // 3️⃣ Fetch bids and include bidder info
     const bids = await Bid.find({ gig: gigId })
-      .populate("bidder", "name email") // only name & email of bidder
-      .sort({ createdAt: -1 }); // newest first
+      .populate("bidder", "name email")
+      .sort({ createdAt: -1 });
 
-    return res.status(200).json(bids);
+    res.status(200).json(bids);
   } catch (error) {
-    return res.status(500).json({
+    res.status(500).json({
       message: "Failed to fetch bids",
       error: error.message
+    });
+  }
+};
+
+/**
+ * 🔥 PHASE 6: HIRE FREELANCER (TRANSACTION)
+ * POST /api/bids/:bidId/hire
+ */
+export const hireFreelancer = async (req, res) => {
+  const session = await mongoose.startSession();
+
+  try {
+    session.startTransaction();
+
+    const { bidId } = req.params;
+    const userId = req.user.id;
+
+    const bid = await Bid.findById(bidId).session(session);
+    if (!bid) throw new Error("Bid not found");
+
+    const gig = await Gig.findById(bid.gig).session(session);
+    if (!gig) throw new Error("Gig not found");
+
+    // Only gig owner
+    if (gig.createdBy.toString() !== userId) {
+      throw new Error("Not authorized");
+    }
+
+    // Only open gig
+    if (gig.status !== "open") {
+      throw new Error("Gig already assigned");
+    }
+
+    // Hire selected bid
+    bid.status = "hired";
+    await bid.save({ session });
+
+    // Reject others
+    await Bid.updateMany(
+      { gig: gig._id, _id: { $ne: bid._id } },
+      { status: "rejected" },
+      { session }
+    );
+
+    // Update gig
+    gig.status = "assigned";
+    gig.hiredBid = bid._id;
+    await gig.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(200).json({
+      message: "Freelancer hired successfully 🎉"
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+
+    res.status(400).json({
+      message: error.message
     });
   }
 };

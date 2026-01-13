@@ -19,7 +19,7 @@ const gigSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["open", "closed"],
+      enum: ["open", "assigned", "closed"],
       default: "open"
     },
 
@@ -27,6 +27,12 @@ const gigSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true
+    },
+
+    // 🔹 NEW (track hired bid)
+    hiredBid: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Bid"
     }
   },
   { timestamps: true }
