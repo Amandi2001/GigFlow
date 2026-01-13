@@ -1,0 +1,13 @@
+.register-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  background: linear-gradient(135deg, #f97316, #4f46e5);
+}
+.card {
+  background-color: white;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 400px;
+}
